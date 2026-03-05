@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fast SRT Sinhala Translator</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background: white; width: 95%; max-width: 450px; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+        h2 { color: #075e54; margin-bottom: 20px; }
+        .input-box { border: 2px dashed #075e54; padding: 20px; border-radius: 10px; margin-bottom: 20px; background: #f9f9f9; }
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; margin-top: 10px; }
+        #startBtn { background-color: #075e54; color: white; }
+        #startBtn:disabled { background-color: #ccc; }
+        #dlBtn { background-color: #25d366; color: white; display: none; }
+        .prog-container { width: 100%; background: #eee; height: 10px; border-radius: 5px; margin: 20px 0; display: none; overflow: hidden; }
+        #bar { width: 0%; height: 100%; background: #075e54; transition: 0.2s; }
+        #status { font-size: 14px; color: #555; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>SRT සිංහල Translator</h2>
+    <p>වේගවත් සහ ස්වාභාවික පරිවර්තනය</p>
+
+    <div class="input-box">
+        <input type="file" id="srtFile" accept=".srt">
+    </div>
+
+    <div class="prog-container" id="progBox">
+        <div id="bar"></div>
+    </div>
+
+    <button id="startBtn">දැන්ම පටන් ගන්න</button>
+    <button id="dlBtn">සිංහල SRT එක බාගන්න</button>
+
+    <p id="status">තත්ත්වය: සූදානම්</p>
+</div>
+
+<script>
+    const startBtn = document.getElementById('startBtn');
+    const dlBtn = document.getElementById('dlBtn');
+    const bar = document.getElementById('bar');
+    const status = document.getElementById('status');
+    let finalSrt = "";
+
+    // වඩාත් ස්වාභාවික කටවහර සඳහා Rules
+    function naturalSpoken(text) {
+        return text
+            .replace(/ඔබ/g, "ඔයා").replace(/මම/g, "මං")
+            .replace(/පැමිණියා/g, "ආවා").replace(/යන්න/g, "යමු")
+            .replace(/සිටිනවා/g, "ඉන්නවා").replace(/තිබෙනවා/g, "තියෙනවා")
+            .replace(/නැත/g, "නෑ").replace(/සමග/g, "එක්ක")
+            .replace(/මොකක්ද/g, "මොකක්ද").replace(/ස්තූතියි/g, "තෑන්ක්ස්")
+            .replace(/කළා/g, "කළා").replace(/පැමිණෙන/g, "එන");
+    }
+
+    async function translateBatch(batch) {
+        if (batch.length === 0) return [];
+        try {
+            // Lines එකතු කරලා එකපාර යවනවා (New line separator එකක් එක්ක)
+            const combinedText = batch.join(' ||| ');
+            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=si&dt=t&q=${encodeURIComponent(combinedText)}`);
+            const data = await res.json();
+            
+            let fullTrans = data[0].map(x => x[0]).join('');
+            // ආපහු පේළි වලට වෙන් කරනවා
+            return fullTrans.split(' ||| ').map(line => naturalSpoken(line.trim()));
+        } catch (e) {
+            return batch; 
+        }
+    }
+
+    startBtn.onclick = async () => {
+        const file = document.getElementById('srtFile').files[0];
+        if (!file) return alert("File එකක් තෝරන්න!");
+
+        const text = await file.text();
+        const lines = text.split(/\r?\n/);
+        let result = [];
+        let batch = [];
+        let batchIndices = [];
+
+        startBtn.disabled = true;
+        document.getElementById('progBox').style.display = 'block';
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+
+            if (line === "" || /^\d+$/.test(line) || line.includes("-->")) {
+                result[i] = line;
+            } else {
+                batch.push(line);
+                batchIndices.push(i);
+            }
+
+            // පේළි 10ක් එකතු වුණාම හෝ file එක ඉවර වුණාම translate කරනවා
+            if (batch.length === 10 || (i === lines.length - 1 && batch.length > 0)) {
+                status.innerText = `පරිවර්තනය වෙමින්: ${Math.round((i/lines.length)*100)}%`;
+                const translatedBatch = await translateBatch(batch);
+                
+                translatedBatch.forEach((tLine, idx) => {
+                    result[batchIndices[idx]] = tLine;
+                });
+
+                batch = [];
+                batchIndices = [];
+                bar.style.width = (i / lines.length * 100) + "%";
+            }
+        }
+
+        finalSrt = result.join('\r\n');
+        status.innerText = "සාර්ථකව අවසන් වුණා!";
+        dlBtn.style.display = 'block';
+        startBtn.innerText = "නැවත කරන්න";
+        startBtn.disabled = false;
+    };
+
+    dlBtn.onclick = () => {
+        const blob = new Blob([finalSrt], { type: 'text/srt' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "Sinhala_Sub.srt";
+        a.click();
+    };
+</script>
+
+</body>
+</html>
